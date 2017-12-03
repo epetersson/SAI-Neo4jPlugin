@@ -1,14 +1,10 @@
 package net.sourcedestination.sai.neo4jplugin.db;
 
-import net.sourcedestination.sai.neo4jplugin.Neo4jSessionFactory;
-import net.sourcedestination.sai.neo4jplugin.domain.Edge;
-import net.sourcedestination.sai.neo4jplugin.domain.Feature;
-import net.sourcedestination.sai.neo4jplugin.domain.Graph;
-import net.sourcedestination.sai.neo4jplugin.domain.Node;
 import net.sourcedestination.sai.db.DBInterface;
 import net.sourcedestination.sai.graph.GraphFactory;
 import net.sourcedestination.sai.graph.MutableGraph;
-import org.neo4j.ogm.session.Session;
+import org.neo4j.driver.v1.*;
+import org.neo4j.driver.v1.GraphDatabase;
 
 import java.util.*;
 import java.util.stream.Stream;
@@ -19,20 +15,20 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 
+import static org.neo4j.driver.v1.Values.parameters;
+
 /**
  * Created by ep on 2017-11-27.
  */
 public class Neo4jDBInterface implements DBInterface {
-    private Neo4jSessionFactory factory;
-    private Session session;
+    Driver driver;
     private File dbFile;
 
     private long nextFeatureID = 1;
     private long nextGraphID = 1;
 
     public Neo4jDBInterface(){
-        this.factory = Neo4jSessionFactory.getInstance();
-        this.session = factory.getNeo4jSession();
+        driver = GraphDatabase.driver("bolt://localhost:7687");
     }
 
     public Neo4jDBInterface(File dbFile) throws AccessDeniedException {
@@ -49,7 +45,7 @@ public class Neo4jDBInterface implements DBInterface {
         nextGraphID = 0;
         BufferedReader in = null;
 
-        try {
+        try (Session session = driver.session()){
             in = new BufferedReader(new FileReader(dbFile));
             int numFeatureNames = Integer.parseInt(in.readLine());
 
@@ -62,10 +58,12 @@ public class Neo4jDBInterface implements DBInterface {
                     final int fid = lin.nextInt(); //TODO: Check if nextLong works the same as nextInt
                     final String value = lin.next();
                     if (nextFeatureID <= fid) nextFeatureID = fid + 1;
-                    Feature feature = new Feature(name, value);
-                    feature.setId(fid);
-                    session.save(feature);
-                    //fRepo.save(feature);
+                    try (Transaction tx = session.beginTransaction())
+                    {
+                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
+                                parameters("fid", fid, "n", name, "v", value));
+                        tx.success();  // Mark this write as successful.
+                    }
                 }
                 lin.close();
             }
@@ -81,11 +79,19 @@ public class Neo4jDBInterface implements DBInterface {
                 int numNodes = lin.nextInt();
                 int numEdges = lin.nextInt();
 
-                Graph graph = new Graph();
-                graph.setId(gid);
+                try (Transaction tx = session.beginTransaction())
+                {
+                    tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", gid));
+                    tx.success();
+                }
                 while (lin.hasNext()) {
-                    Feature feature = session.load(Feature.class, lin.nextInt());
-                    graph.hasFeature(feature);
+                    final int fid = lin.nextInt();
+                    try (Transaction tx = session.beginTransaction())
+                    {
+                        tx.run("MATCH (g:Graph { gid: {gid} }), (f:Feature { fid: {fid} } CREATE (g)-[:HAS_FEATURE]->(f)",
+                                parameters("gid", gid, "fid", fid));
+                        tx.success();
+                    }
                 }
                 lin.close();
 
@@ -95,18 +101,22 @@ public class Neo4jDBInterface implements DBInterface {
                     lin = new Scanner(line);
                     lin.useDelimiter(",");
                     final int nid = lin.nextInt();
-                    Node node = new Node();
-                    node.setId(nid);
-                    graph.hasNode(node);
+
+                    try (Transaction tx = session.beginTransaction())
+                    {
+                        tx.run("CREATE (n:Node { nid: {nid} })", parameters("nid", nid));
+                        tx.success();
+                    }
 
                     while(lin.hasNext()) {
-                        Feature feature = session.load(Feature.class, lin.nextInt());
-                        node.hasFeature(feature);
-                        /* TODO: Ask Dr. Morwick about below
-                        graphsWithFeatureName.put(f.getName(), gid);
-                        graphsWithFeature.put(f, gid);*/
+                        final int fid = lin.nextInt();
+                        try (Transaction tx = session.beginTransaction())
+                        {
+                            tx.run("MATCH (n:Node { nid: {nid} }), (f:Feature { fid: {fid} } CREATE (n)-[:HAS_FEATURE]->(f)",
+                                    parameters("nid", nid, "fid", fid));
+                            tx.success();
+                        }
                     }
-                    session.save(node);
 
                     lin.close();
                 }
@@ -119,23 +129,25 @@ public class Neo4jDBInterface implements DBInterface {
                     final int eid = lin.nextInt();
                     final int nid1 = lin.nextInt();
                     final int nid2 = lin.nextInt();
-                    Node node1 = session.load(Node.class, nid1);
-                    Node node2 = session.load(Node.class, nid2);
-                    Edge edge = new Edge();
 
-                    edge.setId(eid);
-                    node1.connectedTo(edge);
-                    node2.connectedTo(edge);
-                    edge.setNode1Id(nid1);
-                    edge.setNode2Id(nid2);
+                    try (Transaction tx = session.beginTransaction())
+                    {
+                        tx.run("CREATE (e:Edge { eid: {eid}, nid1: {nid1}, nid2: {nid2} })",
+                                parameters("eid", eid, "nid1", nid1, "nid2", nid2));
+                        tx.success();
+                    }
 
                     while(lin.hasNext()) {
-                        Feature feature = session.load(Feature.class, lin.nextInt());
-                        edge.hasFeature(feature);
+                        final int fid = lin.nextInt();
+                        try (Transaction tx = session.beginTransaction())
+                        {
+                            tx.run("MATCH (e:Edge { eid: {eid} }), (f:Feature { fid: {fid} } CREATE (e)-[:HAS_FEATURE]->(f)",
+                                    parameters("eid", eid, "fid", fid));
+                            tx.success();
+                        }
                     }
                     lin.close();
                 }
-                session.save(graph); //TODO: Double check if this actually saves the edges aswell. It should.
             }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
@@ -146,7 +158,6 @@ public class Neo4jDBInterface implements DBInterface {
     }
     @Override
     public void disconnect() {
-        session.purgeDatabase();
     }
 
     @Override
@@ -159,43 +170,55 @@ public class Neo4jDBInterface implements DBInterface {
     @Override
     public int addGraph(net.sourcedestination.sai.graph.Graph saiGraph) {
         //TODO: need to add graph ID to features, nodes and edges..
-        Graph graph = new Graph();
-        saiGraph.getFeatures().forEach(f -> {
-            Feature feature = new Feature(f.getName(), f.getValue());
-            graph.hasFeature(feature);
-        });
-        saiGraph.getNodeIDs().forEach(nid -> {
-            Node node = new Node();
-            node.setId(nid);
-            saiGraph.getNodeFeatures(nid).forEach(nf -> {
-                node.hasFeature(new Feature(nf.getName(), nf.getValue()));
-            });
-            graph.hasNode(node);
-        });
-        saiGraph.getEdgeIDs().forEach(eid -> {
-            Edge edge = new Edge();
-            edge.setId(eid);
-            saiGraph.getEdgeFeatures(eid).forEach(ef -> {
-                edge.hasFeature(new Feature(ef.getName(), ef.getValue()));
-            });
-            Node node1 = session.load(Node.class, saiGraph.getEdgeSourceNodeID(eid));
-            Node node2 = session.load(Node.class, saiGraph.getEdgeTargetNodeID(eid));
-            node1.connectedTo(edge);
-            node2.connectedTo(edge);
-            session.save(node1);
-            session.save(node2);
-        });
+        /*Graph graph = new Graph();
+        try (Session session = driver.session()){
+            try (Transaction tx = session.beginTransaction())
+            {
+                tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", gid));
+                tx.success();  // Mark this write as successful.
+            }
+            try (Transaction tx = session.beginTransaction()) {
+                saiGraph.getFeatures().forEach(f -> {
+                    tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
+                            parameters("fid", fid, "n", name, "v", value));
+                    Feature feature = new Feature(f.getName(), f.getValue());
+                    graph.hasFeature(feature);
+                });
+                saiGraph.getNodeIDs().forEach(nid -> {
+                    Node node = new Node();
+                    node.setId(nid);
+                    saiGraph.getNodeFeatures(nid).forEach(nf -> {
+                        node.hasFeature(new Feature(nf.getName(), nf.getValue()));
+                    });
+                    graph.hasNode(node);
+                });
+                saiGraph.getEdgeIDs().forEach(eid -> {
+                    Edge edge = new Edge();
+                    edge.setId(eid);
+                    saiGraph.getEdgeFeatures(eid).forEach(ef -> {
+                        edge.hasFeature(new Feature(ef.getName(), ef.getValue()));
+                    });
+                    Node node1 = session.load(Node.class, saiGraph.getEdgeSourceNodeID(eid));
+                    Node node2 = session.load(Node.class, saiGraph.getEdgeTargetNodeID(eid));
+                    node1.connectedTo(edge);
+                    node2.connectedTo(edge);
+                    session.save(node1);
+                    session.save(node2);
+                });
+            }
 
-        return graph.getId();
+            return graph.getId();
+        }*/
+        return 0;
     }
 
     //TODO: Make my graph implement sai graph interface
     @Override
     public <G extends net.sourcedestination.sai.graph.Graph> G retrieveGraph(int graphId, GraphFactory<G> graphFactory) {
-        Graph retrievedGraph = session.load(Graph.class, graphId);
+        MutableGraph graph = new MutableGraph();
+        /*Graph retrievedGraph = session.load(Graph.class, graphId);
         Stream<net.sourcedestination.sai.graph.Feature> graphFeatures = retrievedGraph.getFeatures();
         Set<Node> graphNodes = retrievedGraph.getNodes();
-        MutableGraph graph = new MutableGraph();
         graphFeatures.forEach(f ->
                 graph.addFeature(new net.sourcedestination.sai.graph.Feature(f.getName(), f.getValue())));
         graphNodes.forEach(n -> {
@@ -207,7 +230,7 @@ public class Neo4jDBInterface implements DBInterface {
                 e.getFeatures().forEach(f -> graph.addEdgeFeature(e.getId(),
                         new net.sourcedestination.sai.graph.Feature(f.getName(), f.getValue())));
             });
-        });
+        });*/
 
         return (G) graph;
     }
