@@ -30,21 +30,11 @@ public class Neo4jDBInterface implements DBInterface {
     private long nextFeatureID = 1;
     private long nextGraphID = 1;
 
-    /*
-    @Autowired
-    GraphRepository gRepo;
-    @Autowired
-    FeatureRepository fRepo;
-    @Autowired
-    NodeRepository nRepo;
-    @Autowired
-    EdgeRepository eRepo;
-    */
-
     public Neo4jDBInterface(){
         this.factory = Neo4jSessionFactory.getInstance();
         this.session = factory.getNeo4jSession();
     }
+
     public Neo4jDBInterface(File dbFile) throws AccessDeniedException {
         this();
         this.dbFile = dbFile;
@@ -63,7 +53,6 @@ public class Neo4jDBInterface implements DBInterface {
             in = new BufferedReader(new FileReader(dbFile));
             int numFeatureNames = Integer.parseInt(in.readLine());
 
-            //Read in Features
             for (int i = 0; i < numFeatureNames; i++) {
                 //TODO: need to add graph ID to features, nodes and edges..
                 Scanner lin = new Scanner(in.readLine());
@@ -96,7 +85,6 @@ public class Neo4jDBInterface implements DBInterface {
                 graph.setId(gid);
                 while (lin.hasNext()) {
                     Feature feature = session.load(Feature.class, lin.nextInt());
-                    //Feature feature = fRepo.findById(lin.nextInt()).get();
                     graph.hasFeature(feature);
                 }
                 lin.close();
@@ -113,7 +101,6 @@ public class Neo4jDBInterface implements DBInterface {
 
                     while(lin.hasNext()) {
                         Feature feature = session.load(Feature.class, lin.nextInt());
-                        //Feature feature = fRepo.findById(lin.nextInt()).get();
                         node.hasFeature(feature);
                         /* TODO: Ask Dr. Morwick about below
                         graphsWithFeatureName.put(f.getName(), gid);
@@ -134,8 +121,6 @@ public class Neo4jDBInterface implements DBInterface {
                     final int nid2 = lin.nextInt();
                     Node node1 = session.load(Node.class, nid1);
                     Node node2 = session.load(Node.class, nid2);
-                    //Node node1 = nRepo.findById(nid1).get();
-                    //Node node2 = nRepo.findById(nid2).get();
                     Edge edge = new Edge();
 
                     edge.setId(eid);
@@ -146,14 +131,11 @@ public class Neo4jDBInterface implements DBInterface {
 
                     while(lin.hasNext()) {
                         Feature feature = session.load(Feature.class, lin.nextInt());
-                        //Feature feature = fRepo.findById(lin.nextInt()).get();
                         edge.hasFeature(feature);
                     }
-                    //eRepo.save(edge);
                     lin.close();
                 }
                 session.save(graph); //TODO: Double check if this actually saves the edges aswell. It should.
-                //gRepo.save(graph);
             }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
@@ -198,14 +180,10 @@ public class Neo4jDBInterface implements DBInterface {
             });
             Node node1 = session.load(Node.class, saiGraph.getEdgeSourceNodeID(eid));
             Node node2 = session.load(Node.class, saiGraph.getEdgeTargetNodeID(eid));
-            //Node node1 = nRepo.findById(saiGraph.getEdgeSourceNodeID(eid)).get();
-            //Node node2 = nRepo.findById(saiGraph.getEdgeTargetNodeID(eid)).get();
             node1.connectedTo(edge);
             node2.connectedTo(edge);
             session.save(node1);
             session.save(node2);
-            //nRepo.save(node1);
-            //nRepo.save(node2);
         });
 
         return graph.getId();
@@ -215,8 +193,7 @@ public class Neo4jDBInterface implements DBInterface {
     @Override
     public <G extends net.sourcedestination.sai.graph.Graph> G retrieveGraph(int graphId, GraphFactory<G> graphFactory) {
         Graph retrievedGraph = session.load(Graph.class, graphId);
-        //Graph retrievedGraph = gRepo.findById(graphId).get();
-        Set<Feature> graphFeatures = retrievedGraph.getFeatures();
+        Stream<net.sourcedestination.sai.graph.Feature> graphFeatures = retrievedGraph.getFeatures();
         Set<Node> graphNodes = retrievedGraph.getNodes();
         MutableGraph graph = new MutableGraph();
         graphFeatures.forEach(f ->
