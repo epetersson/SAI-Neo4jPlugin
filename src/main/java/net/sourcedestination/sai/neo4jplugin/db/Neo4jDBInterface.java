@@ -1,6 +1,8 @@
 package net.sourcedestination.sai.neo4jplugin.db;
 
 import net.sourcedestination.sai.db.DBInterface;
+import net.sourcedestination.sai.graph.Feature;
+import net.sourcedestination.sai.graph.Graph;
 import net.sourcedestination.sai.graph.GraphFactory;
 import net.sourcedestination.sai.graph.MutableGraph;
 import org.neo4j.driver.v1.*;
@@ -170,69 +172,72 @@ public class Neo4jDBInterface implements DBInterface {
     @Override
     public int addGraph(net.sourcedestination.sai.graph.Graph saiGraph) {
         //TODO: need to add graph ID to features, nodes and edges..
-        /*Graph graph = new Graph();
+        Graph graph = new MutableGraph();
         try (Session session = driver.session()){
-            try (Transaction tx = session.beginTransaction())
-            {
-                tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", gid));
-                tx.success();  // Mark this write as successful.
-            }
+            StatementResult result = session.run("MATCH (g:Graph) return MAX(g.gid);");
+            //int currentHighestGId =  result.next().get("gid").asInt();
+            int currentHighestGId =  0;
+
+
+            //TODO: Is custom IDS necessary for anything but the graphs? Features are the only ones without from saiGraph?
+            result = session.run("MATCH (f:Feature) return MAX(f.fid);");
+            //final int[] currentHighestFId = {result.next().get("fid").asInt()};
+            final int[] currentHighestFId = {0};
+
             try (Transaction tx = session.beginTransaction()) {
+                tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", currentHighestGId));
+                tx.success();  // Mark this write as successful.
+
                 saiGraph.getFeatures().forEach(f -> {
+                    currentHighestFId[0]++;
                     tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
-                            parameters("fid", fid, "n", name, "v", value));
-                    Feature feature = new Feature(f.getName(), f.getValue());
-                    graph.hasFeature(feature);
+                            parameters("fid", currentHighestFId[0], "n", f.getName(), "v", f.getValue()));
+                    tx.run("MATCH (g:Graph { gid: {gid} }), (f:Feature { fid: {fid} }) CREATE (g)-[:HAS_FEATURE]->(f)",
+                            parameters("gid", currentHighestGId, "fid", currentHighestFId[0]));
                 });
                 saiGraph.getNodeIDs().forEach(nid -> {
-                    Node node = new Node();
-                    node.setId(nid);
+                    //currentHighestNId[0]++;
+                    tx.run("CREATE (n:Node { nid: {nid} })", parameters("nid", nid));
                     saiGraph.getNodeFeatures(nid).forEach(nf -> {
-                        node.hasFeature(new Feature(nf.getName(), nf.getValue()));
+                        currentHighestFId[0]++;
+                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
+                                parameters("fid", currentHighestFId[0], "n", nf.getName(), "v", nf.getValue()));
+                        tx.run("MATCH (n:Node { nid: {nid} }), (f:Feature { fid: {fid} }) CREATE (n)-[:HAS_FEATURE]->(f)",
+                                parameters("nid", nid, "fid", currentHighestFId[0]));
+                        tx.run("MATCH (n:Node { nid: {nid} }), (g:Graph { gid: {gid} }) CREATE (g)-[:HAS_NODE]->(n)",
+                                parameters("nid", nid, "gid", currentHighestGId));
                     });
-                    graph.hasNode(node);
                 });
                 saiGraph.getEdgeIDs().forEach(eid -> {
-                    Edge edge = new Edge();
-                    edge.setId(eid);
+                    //currentHighestEId[0]++;
+                    int nid1 = saiGraph.getEdgeSourceNodeID(eid);
+                    int nid2 = saiGraph.getEdgeTargetNodeID(eid);
+                    tx.run("CREATE (e:Edge { eid: {eid}, nid1: {nid1}, nid2: {nid2} })",
+                            parameters("eid", eid, "nid1", nid1, "nid2", nid2));
+                    tx.run("MATCH (e:Edge { eid: {eid} }), (n1:Node {nid: e.nid1}) CREATE (n1)-[:HAS_EDGE]->(e)",
+                            parameters("eid", eid));
+                    tx.run("MATCH (e:Edge { eid: {eid} }), (n2:Node {nid: e.nid2}) CREATE (n2)-[:HAS_EDGE]->(e)",
+                            parameters("eid", eid));
                     saiGraph.getEdgeFeatures(eid).forEach(ef -> {
-                        edge.hasFeature(new Feature(ef.getName(), ef.getValue()));
-                    });
-                    Node node1 = session.load(Node.class, saiGraph.getEdgeSourceNodeID(eid));
-                    Node node2 = session.load(Node.class, saiGraph.getEdgeTargetNodeID(eid));
-                    node1.connectedTo(edge);
-                    node2.connectedTo(edge);
-                    session.save(node1);
-                    session.save(node2);
-                });
-            }
+                        currentHighestFId[0]++;
+                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
+                                parameters("fid", currentHighestFId[0], "n", ef.getName(), "v", ef.getValue()));
+                        tx.run("MATCH (e:Edge { eid: {eid} }), (f:Feature { fid: {fid} }) CREATE (e)-[:HAS_FEATURE]->(f)",
+                                parameters("eid", eid, "fid", currentHighestFId[0]));
 
-            return graph.getId();
-        }*/
-        return 0;
+                    });
+                });
+                tx.success();
+            }
+            return currentHighestGId;
+        }
     }
 
-    //TODO: Make my graph implement sai graph interface
     @Override
     public <G extends net.sourcedestination.sai.graph.Graph> G retrieveGraph(int graphId, GraphFactory<G> graphFactory) {
-        MutableGraph graph = new MutableGraph();
-        /*Graph retrievedGraph = session.load(Graph.class, graphId);
-        Stream<net.sourcedestination.sai.graph.Feature> graphFeatures = retrievedGraph.getFeatures();
-        Set<Node> graphNodes = retrievedGraph.getNodes();
-        graphFeatures.forEach(f ->
-                graph.addFeature(new net.sourcedestination.sai.graph.Feature(f.getName(), f.getValue())));
-        graphNodes.forEach(n -> {
-            graph.addNode(n.getId());
-            n.getFeatures().forEach(f -> graph.addNodeFeature(n.getId(),
-                    new net.sourcedestination.sai.graph.Feature(f.getName(), f.getValue())));
-            n.getEdges().forEach(e -> {
-                graph.addEdge(e.getId(), e.getNode1Id(), e.getNode2Id());
-                e.getFeatures().forEach(f -> graph.addEdgeFeature(e.getId(),
-                        new net.sourcedestination.sai.graph.Feature(f.getName(), f.getValue())));
-            });
-        });*/
+        net.sourcedestination.sai.neo4jplugin.db.GraphFactory gFactory = new net.sourcedestination.sai.neo4jplugin.db.GraphFactory(driver);
 
-        return (G) graph;
+        return (G) gFactory.retrieveGraph(graphId);
     }
 
     @Override
@@ -258,5 +263,37 @@ public class Neo4jDBInterface implements DBInterface {
     @Override
     public Stream<Integer> retrieveGraphsWithFeatureName(String s) {
         return null;
+    }
+
+    public static void main(String[] args){
+        Neo4jDBInterface ifs = new Neo4jDBInterface();
+        /*MutableGraph graph = new MutableGraph();
+        Feature feature1 = new Feature("Name 1", "Value 1");
+        Feature feature2 = new Feature("Name 2", "Value 2");
+        Feature feature3 = new Feature("Name 3", "Value 3");
+        Feature feature4 = new Feature("Name 4", "Value 4");
+        Feature feature5 = new Feature("Name 5", "Value 5");
+        Feature feature6 = new Feature("Name 6", "Value 6");
+
+        graph.addFeature(feature1);
+        graph.addFeature(feature2);
+
+        graph.addNode(1);
+        graph.addNode(2);
+        graph.addNodeFeature(1, feature3);
+        graph.addNodeFeature(2, feature4);
+
+        graph.addEdge(1, 1, 2);
+        graph.addEdgeFeature(1, feature5);
+        graph.addEdgeFeature(1, feature6);
+
+        ifs.addGraph(graph);*/
+
+        ifs.retrieveGraph(0, new GraphFactory<Graph>() {
+            @Override
+            public Graph copy(Graph graph) {
+                return null;
+            }
+        });
     }
 }
