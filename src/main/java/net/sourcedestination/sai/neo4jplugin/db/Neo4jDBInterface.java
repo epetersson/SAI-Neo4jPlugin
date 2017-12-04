@@ -42,6 +42,10 @@ public class Neo4jDBInterface implements DBInterface {
         populateDatabase();
     }
 
+    /**
+     * Method populates the database using the dbfile and
+     * cypher queries with the neo4j java driver.
+     */
     public void populateDatabase(){
         nextFeatureID = 0;
         nextGraphID = 0;
@@ -73,7 +77,6 @@ public class Neo4jDBInterface implements DBInterface {
             //Read in Graphs
             int numGraphs = Integer.parseInt(in.readLine());
             for(int i=0; i<numGraphs; i++) {
-                //get general graph into
                 String line = in.readLine();
                 Scanner lin = new Scanner(line);
                 lin.useDelimiter(",");
@@ -168,7 +171,12 @@ public class Neo4jDBInterface implements DBInterface {
     }
 
 
-    //TODO: GraphFactory
+    /**
+     * Method adds a sai graph to the neo4j database using
+     * Cypher queries.
+     * @param saiGraph Graph
+     * @return int
+     */
     @Override
     public int addGraph(net.sourcedestination.sai.graph.Graph saiGraph) {
         //TODO: need to add graph ID to features, nodes and edges..
@@ -233,6 +241,13 @@ public class Neo4jDBInterface implements DBInterface {
         }
     }
 
+    /**
+     * Method calls the Graph Factory to retrieve a graph from the neo4j db by id.
+     * @param graphId int
+     * @param graphFactory GraphFactory
+     * @param <G> Graph
+     * @return
+     */
     @Override
     public <G extends net.sourcedestination.sai.graph.Graph> G retrieveGraph(int graphId, GraphFactory<G> graphFactory) {
         net.sourcedestination.sai.neo4jplugin.db.GraphFactory gFactory = new net.sourcedestination.sai.neo4jplugin.db.GraphFactory(driver);
@@ -265,6 +280,10 @@ public class Neo4jDBInterface implements DBInterface {
         return null;
     }
 
+    /**
+     * Test method for adding and retrieving graphs.
+     * @param args
+     */
     public static void main(String[] args){
         Neo4jDBInterface ifs = new Neo4jDBInterface();
         /*MutableGraph graph = new MutableGraph();

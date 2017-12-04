@@ -23,6 +23,13 @@ public class GraphFactory<G extends Graph> {
         this.driver = driver;
     }
 
+    /**
+     * Method retrieves a graph from the Neo4j db and puts the result into a
+     * sai graph
+     * @param graphId int
+     * @param <G> Graph
+     * @return Graph
+     */
     public <G extends Graph> G retrieveGraph(int graphId) {
         MutableGraph graph = new MutableGraph();
         try (Session session = driver.session())
