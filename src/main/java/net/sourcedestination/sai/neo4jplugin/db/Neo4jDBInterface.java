@@ -8,14 +8,8 @@ import net.sourcedestination.sai.graph.MutableGraph;
 import org.neo4j.driver.v1.*;
 import org.neo4j.driver.v1.GraphDatabase;
 
-import java.util.*;
 import java.util.stream.Stream;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.file.AccessDeniedException;
 
 import static org.neo4j.driver.v1.Values.parameters;
 
@@ -33,134 +27,6 @@ public class Neo4jDBInterface implements DBInterface {
         driver = GraphDatabase.driver("bolt://localhost:7687");
     }
 
-    public Neo4jDBInterface(File dbFile) throws AccessDeniedException {
-        this();
-        this.dbFile = dbFile;
-
-        if(dbFile == null || !dbFile.exists() || !dbFile.canRead())
-            throw new AccessDeniedException(dbFile.getAbsolutePath());
-        populateDatabase();
-    }
-
-    /**
-     * Method populates the database using the dbfile and
-     * cypher queries with the neo4j java driver.
-     */
-    public void populateDatabase(){
-        nextFeatureID = 0;
-        nextGraphID = 0;
-        BufferedReader in = null;
-
-        try (Session session = driver.session()){
-            in = new BufferedReader(new FileReader(dbFile));
-            int numFeatureNames = Integer.parseInt(in.readLine());
-
-            for (int i = 0; i < numFeatureNames; i++) {
-                //TODO: need to add graph ID to features, nodes and edges..
-                Scanner lin = new Scanner(in.readLine());
-                lin.useDelimiter(",");
-                final String name = lin.next();
-                while (lin.hasNext()) {
-                    final int fid = lin.nextInt(); //TODO: Check if nextLong works the same as nextInt
-                    final String value = lin.next();
-                    if (nextFeatureID <= fid) nextFeatureID = fid + 1;
-                    try (Transaction tx = session.beginTransaction())
-                    {
-                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
-                                parameters("fid", fid, "n", name, "v", value));
-                        tx.success();  // Mark this write as successful.
-                    }
-                }
-                lin.close();
-            }
-
-            //Read in Graphs
-            int numGraphs = Integer.parseInt(in.readLine());
-            for(int i=0; i<numGraphs; i++) {
-                String line = in.readLine();
-                Scanner lin = new Scanner(line);
-                lin.useDelimiter(",");
-                int gid = lin.nextInt();
-                int numNodes = lin.nextInt();
-                int numEdges = lin.nextInt();
-
-                try (Transaction tx = session.beginTransaction())
-                {
-                    tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", gid));
-                    tx.success();
-                }
-                while (lin.hasNext()) {
-                    final int fid = lin.nextInt();
-                    try (Transaction tx = session.beginTransaction())
-                    {
-                        tx.run("MATCH (g:Graph { gid: {gid} }), (f:Feature { fid: {fid} } CREATE (g)-[:HAS_FEATURE]->(f)",
-                                parameters("gid", gid, "fid", fid));
-                        tx.success();
-                    }
-                }
-                lin.close();
-
-                //get graph nodes
-                for(int j=0; j<numNodes; j++) {
-                    line = in.readLine();
-                    lin = new Scanner(line);
-                    lin.useDelimiter(",");
-                    final int nid = lin.nextInt();
-
-                    try (Transaction tx = session.beginTransaction())
-                    {
-                        tx.run("CREATE (n:Node { nid: {nid} })", parameters("nid", nid));
-                        tx.success();
-                    }
-
-                    while(lin.hasNext()) {
-                        final int fid = lin.nextInt();
-                        try (Transaction tx = session.beginTransaction())
-                        {
-                            tx.run("MATCH (n:Node { nid: {nid} }), (f:Feature { fid: {fid} } CREATE (n)-[:HAS_FEATURE]->(f)",
-                                    parameters("nid", nid, "fid", fid));
-                            tx.success();
-                        }
-                    }
-
-                    lin.close();
-                }
-
-                //get graph edges
-                for(int j=0; j<numEdges; j++) {
-                    lin = new Scanner(in.readLine());
-                    lin.useDelimiter(",");
-
-                    final int eid = lin.nextInt();
-                    final int nid1 = lin.nextInt();
-                    final int nid2 = lin.nextInt();
-
-                    try (Transaction tx = session.beginTransaction())
-                    {
-                        tx.run("CREATE (e:Edge { eid: {eid}, nid1: {nid1}, nid2: {nid2} })",
-                                parameters("eid", eid, "nid1", nid1, "nid2", nid2));
-                        tx.success();
-                    }
-
-                    while(lin.hasNext()) {
-                        final int fid = lin.nextInt();
-                        try (Transaction tx = session.beginTransaction())
-                        {
-                            tx.run("MATCH (e:Edge { eid: {eid} }), (f:Feature { fid: {fid} } CREATE (e)-[:HAS_FEATURE]->(f)",
-                                    parameters("eid", eid, "fid", fid));
-                            tx.success();
-                        }
-                    }
-                    lin.close();
-                }
-            }
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-    }
     @Override
     public void disconnect() {
     }
