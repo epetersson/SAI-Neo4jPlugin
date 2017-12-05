@@ -44,7 +44,7 @@ public class GraphFactory<G extends Graph> {
             // Each Cypher execution returns a stream of records.
             while (graphResult.hasNext())
             {
-                Record record = graphResult.next();;
+                Record record = graphResult.next();
                 graph.addFeature(new Feature(record.get("gf.name").asString(), record.get("gf.value").asString()));
                 if(!graph.getNodeIDs().anyMatch(id -> id.equals(record.get("n.nid").asInt())))
                     graph.addNode(record.get("n.nid").asInt());
