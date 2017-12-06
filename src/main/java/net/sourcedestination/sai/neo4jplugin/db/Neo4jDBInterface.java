@@ -8,6 +8,7 @@ import net.sourcedestination.sai.graph.MutableGraph;
 import org.neo4j.driver.v1.*;
 import org.neo4j.driver.v1.GraphDatabase;
 
+import org.apache.log4j.Logger;
 import java.util.stream.Stream;
 import java.io.File;
 
@@ -18,6 +19,7 @@ import static org.neo4j.driver.v1.Values.parameters;
  */
 public class Neo4jDBInterface implements DBInterface {
     Driver driver;
+    private static final Logger logger = Logger.getLogger(Neo4jDBInterface.class);
     private File dbFile;
 
     private long nextFeatureID = 1;
@@ -54,33 +56,20 @@ public class Neo4jDBInterface implements DBInterface {
             }
             final int newGraphId = currentHighestGId + 1;
 
-            result = session.run("MATCH (f:Feature) return MAX(f.fid);");
-            record = result.single();
-            int currentHighestFId = 0;
-            if(record.get("MAX(f.fid)").asObject() != null){
-                currentHighestFId = record.get("MAX(f.fid)").asInt();
-            }
-            final int[] newFeatureId = {currentHighestFId};
 
             try (Transaction tx = session.beginTransaction()) {
                 tx.run("CREATE (g:Graph { gid: {gid} })", parameters("gid", newGraphId));
                 tx.success();  // Mark this write as successful.
 
                 saiGraph.getFeatures().forEach(f -> {
-                    newFeatureId[0]++;
-                    tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
-                            parameters("fid", newFeatureId[0], "n", f.getName(), "v", f.getValue()));
-                    tx.run("MATCH (g:Graph { gid: {gid} }), (f:Feature { fid: {fid} }) CREATE (g)-[:HAS_FEATURE]->(f)",
-                            parameters("gid", newGraphId, "fid", newFeatureId[0]));
+                    tx.run("MATCH (g:Graph { gid: {gid} }) SET g." + f.getName() + "= {fValue}",
+                            parameters("gid", newGraphId, "fValue", f.getValue()));
                 });
                 saiGraph.getNodeIDs().forEach(nid -> {
                     tx.run("CREATE (n:Node { nid: {nid} })", parameters("nid", nid));
                     saiGraph.getNodeFeatures(nid).forEach(nf -> {
-                        newFeatureId[0]++;
-                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
-                                parameters("fid", newFeatureId[0], "n", nf.getName(), "v", nf.getValue()));
-                        tx.run("MATCH (n:Node { nid: {nid} }), (f:Feature { fid: {fid} }) CREATE (n)-[:HAS_FEATURE]->(f)",
-                                parameters("nid", nid, "fid", newFeatureId[0]));
+                        tx.run("MATCH (n:Node { nid: {nid} }) SET n." + nf.getName() + "= {fValue}",
+                                parameters("nid", nid, "fValue", nf.getValue()));
                         tx.run("MATCH (n:Node { nid: {nid} }), (g:Graph { gid: {gid} }) CREATE (g)-[:HAS_NODE]->(n)",
                                 parameters("nid", nid, "gid", newGraphId));
                     });
@@ -88,24 +77,18 @@ public class Neo4jDBInterface implements DBInterface {
                 saiGraph.getEdgeIDs().forEach(eid -> {
                     int nid1 = saiGraph.getEdgeSourceNodeID(eid);
                     int nid2 = saiGraph.getEdgeTargetNodeID(eid);
-                    tx.run("CREATE (e:Edge { eid: {eid}, nid1: {nid1}, nid2: {nid2} })",
-                            parameters("eid", eid, "nid1", nid1, "nid2", nid2));
-                    tx.run("MATCH (e:Edge { eid: {eid} }), (n1:Node {nid: e.nid1}) CREATE (n1)-[:HAS_EDGE]->(e)",
-                            parameters("eid", eid));
-                    tx.run("MATCH (e:Edge { eid: {eid} }), (n2:Node {nid: e.nid2}) CREATE (n2)-[:HAS_EDGE]->(e)",
-                            parameters("eid", eid));
+                    tx.run("MATCH (n1:Node { nid: {nid1} }), (n2:Node {nid: {nid2} })" +
+                                    "CREATE (n1)-[:HAS_EDGE { eid: {eid} }]->(n2)",
+                            parameters("nid1", nid1, "nid2", nid2, "eid", eid));
                     saiGraph.getEdgeFeatures(eid).forEach(ef -> {
-                        newFeatureId[0]++;
-                        tx.run("CREATE (f:Feature {fid: {fid}, name: {n}, value: {v}})",
-                                parameters("fid", newFeatureId[0], "n", ef.getName(), "v", ef.getValue()));
-                        tx.run("MATCH (e:Edge { eid: {eid} }), (f:Feature { fid: {fid} }) CREATE (e)-[:HAS_FEATURE]->(f)",
-                                parameters("eid", eid, "fid", newFeatureId[0]));
-
+                        tx.run("MATCH (n1:Node { nid: {nid1} })-[r:HAS_EDGE]->(n2:Node { nid: {nid2} }) SET r." + ef.getName() + " = {fValue}",
+                                parameters("nid1", nid1, "nid2", nid2, "eid", eid,"fValue", ef.getValue()));
                     });
                 });
                 tx.success();
             } catch (Exception e) {
                 e.printStackTrace();
+                //logger.error("\nError Cause: " + e.getCause() + "\nError Message: " + e.getMessage());
             }
             return newGraphId;
         }
@@ -150,15 +133,15 @@ public class Neo4jDBInterface implements DBInterface {
         return null;
     }
 
-    public static void main(String[] args){
+    public static void main(String[] args) {
         Neo4jDBInterface ifs = new Neo4jDBInterface();
         MutableGraph graph = new MutableGraph();
-        Feature feature1 = new Feature("Name 1", "Value 1");
-        Feature feature2 = new Feature("Name 2", "Value 2");
-        Feature feature3 = new Feature("Name 3", "Value 3");
-        Feature feature4 = new Feature("Name 4", "Value 4");
-        Feature feature5 = new Feature("Name 5", "Value 5");
-        Feature feature6 = new Feature("Name 6", "Value 6");
+        Feature feature1 = new Feature("label", "Value_1");
+        Feature feature2 = new Feature("label", "Value_2");
+        Feature feature3 = new Feature("label", "Value_3");
+        Feature feature4 = new Feature("label", "Value_4");
+        Feature feature5 = new Feature("label", "Value_5");
+        Feature feature6 = new Feature("label", "Value_6");
         graph.addFeature(feature1);
         graph.addFeature(feature2);
         graph.addNode(1);
@@ -169,12 +152,12 @@ public class Neo4jDBInterface implements DBInterface {
         graph.addEdgeFeature(1, feature5);
         graph.addEdgeFeature(1, feature6);
         ifs.addGraph(graph);
-
+        /*
         ifs.retrieveGraph(1, new GraphFactory<Graph>() {
             @Override
             public Graph copy(Graph graph) {
                 return null;
             }
-        });
+        });     */
     }
 }
