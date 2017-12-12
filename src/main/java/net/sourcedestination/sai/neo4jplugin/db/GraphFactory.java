@@ -3,10 +3,16 @@ package net.sourcedestination.sai.neo4jplugin.db;
 import net.sourcedestination.sai.graph.Feature;
 import net.sourcedestination.sai.graph.Graph;
 import net.sourcedestination.sai.graph.MutableGraph;
+import org.apache.log4j.Logger;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.StatementResult;
+import org.neo4j.driver.v1.types.Node;
+import org.neo4j.driver.v1.types.Relationship;
+
+import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -22,6 +28,7 @@ public class GraphFactory<G extends Graph> {
     public GraphFactory(Driver driver){
         this.driver = driver;
     }
+    private static final Logger logger = Logger.getLogger(GraphFactory.class);
 
     /**
      * Method retrieves a graph from the Neo4j db and puts the result into a
@@ -44,18 +51,50 @@ public class GraphFactory<G extends Graph> {
             while (graphResult.hasNext())
             {
                 Record record = graphResult.next();
-                graph.addFeature(new Feature(record.get("g.label").asString(), record.get("g.value").asString()));
-                if(!graph.getNodeIDs().anyMatch(id -> id.equals(record.get("n.nid").asInt())))
-                    graph.addNode(record.get("n.nid").asInt());
+                Node graphNode = record.get("g").asNode();
+                Node n = record.get("n").asNode();
+                Node n2 = record.get("n2").asNode();
+                Relationship edgeNode = record.get("e").asRelationship();
 
-                graph.addNodeFeature(record.get("n.nid").asInt(), new Feature(record.get("nf.label").asString(),
-                        record.get("nf.value").asString()));
-                if(!graph.getEdgeIDs().anyMatch(id -> id.equals(record.get("e.eid").asInt())))
-                    graph.addEdge(record.get("e.eid").asInt(), record.get("e.nid1").asInt(), record.get("e.nid2").asInt());
+                graphNode.asMap().keySet().forEach(gp -> {
+                    if(!gp.toString().equals("gid")) {
+                        graph.addFeature(new Feature(gp.toString(),
+                                graphNode.get(gp.toString()).asString()));
+                    }
+                });
+                if(!graph.getNodeIDs().anyMatch(id -> id.equals(n.get("nid").asInt())))
+                    graph.addNode(n.get("nid").asInt());
 
-                graph.addEdgeFeature(record.get("e.eid").asInt(), new Feature(record.get("ef.label").asString(),
-                        record.get("ef.value").asString()) );
+                n.asMap().keySet().forEach(np -> {
+                    if(!np.toString().equals("nid")){
+                        graph.addNodeFeature(n.get("nid").asInt(), new Feature(np.toString(),
+                                n.get(np.toString()).asString()));
+                    }
+                });
+
+                if(!graph.getNodeIDs().anyMatch(id -> id.equals(n2.get("nid").asInt())))
+                    graph.addNode(n2.get("nid").asInt());
+
+                n2.asMap().keySet().forEach(np -> {
+                    if(!np.toString().equals("nid")){
+                        graph.addNodeFeature(n2.get("nid").asInt(), new Feature(np.toString(),
+                                n2.get(np.toString()).asString()));
+                    }
+                });
+
+                if(!graph.getEdgeIDs().anyMatch(id -> id.equals(edgeNode.get("eid").asInt())))
+                    graph.addEdge(edgeNode.get("eid").asInt(), n.get("nid").asInt(), n2.get("nid").asInt());
+
+                edgeNode.asMap().keySet().forEach(ep -> {
+                    if(!ep.toString().equals("eid")) {
+                        graph.addEdgeFeature(edgeNode.get("eid").asInt(), new Feature(ep.toString(),
+                                edgeNode.get(ep.toString()).asString()) );
+                    }
+                });
             }
+        } catch(Exception e){
+            e.printStackTrace();
+            logger.error("\nError Cause: " + e.getCause() + "\nError Message: " + e.getMessage());
         }
         return (G) graph;
     }
