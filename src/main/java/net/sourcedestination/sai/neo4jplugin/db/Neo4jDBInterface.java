@@ -141,15 +141,13 @@ public class Neo4jDBInterface implements DBInterface {
     /**
      * Method calls the Graph Factory to retrieve a graph from the neo4j db by id.
      * @param graphId int
-     * @param graphFactory GraphFactory
-     * @param <G> Graph
      * @return
      */
     @Override
-    public <G extends net.sourcedestination.sai.graph.Graph> G retrieveGraph(int graphId, GraphFactory<G> graphFactory) {
+    public net.sourcedestination.sai.graph.Graph retrieveGraph(int graphId) {
         net.sourcedestination.sai.neo4jplugin.db.GraphFactory gFactory = new net.sourcedestination.sai.neo4jplugin.db.GraphFactory(driver);
 
-        return (G) gFactory.retrieveGraph(graphId);
+        return gFactory.retrieveGraph(graphId);
     }
 
     @Override
