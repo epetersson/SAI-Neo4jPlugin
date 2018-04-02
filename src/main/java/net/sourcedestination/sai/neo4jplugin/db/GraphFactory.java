@@ -41,56 +41,77 @@ public class GraphFactory<G extends Graph> {
         MutableGraph graph = new MutableGraph();
         try (Session session = driver.session())
         {
+
+
             // Auto-commit transactions are a quick and easy way to wrap a read.
             StatementResult graphResult = session.run(
-                    "MATCH (g:Graph { gid: {graphId} }), (g)-[:HAS_NODE]->(n:Node), " +
-                            "(n)-[e:HAS_EDGE]->(n2:Node) " +
-                            "return g, n, e, n2",
+                    "MATCH (g:Graph { gid: {gid} })" +
+                            "return g",
+                    parameters("gid", graphId));
+            Record record = graphResult.next();
+            Node graphNode = record.get("g").asNode();
+
+            graphNode.asMap().keySet().forEach(gp -> {
+                if(!gp.toString().equals("gid")) {
+                    graph.addFeature(new Feature(gp.toString(),
+                            graphNode.get(gp.toString()).asString()));
+                }
+            });
+
+
+
+            // Auto-commit transactions are a quick and easy way to wrap a read.
+            graphResult = session.run(
+                    "MATCH (g:Graph { gid: {graphId} }), (g)-[:HAS_NODE]->(n)" +
+                            "return g, n",
                     parameters("graphId", graphId));
             // Each Cypher execution returns a stream of records.
             while (graphResult.hasNext())
             {
-                Record record = graphResult.next();
-                Node graphNode = record.get("g").asNode();
+                record = graphResult.next();
                 Node n = record.get("n").asNode();
-                Node n2 = record.get("n2").asNode();
-                Relationship edgeNode = record.get("e").asRelationship();
 
-                graphNode.asMap().keySet().forEach(gp -> {
-                    if(!gp.toString().equals("gid")) {
-                        graph.addFeature(new Feature(gp.toString(),
-                                graphNode.get(gp.toString()).asString()));
-                    }
-                });
                 if(!graph.getNodeIDs().anyMatch(id -> id.equals(n.get("nid").asInt())))
                     graph.addNode(n.get("nid").asInt());
 
+
                 n.asMap().keySet().forEach(np -> {
-                    if(!np.toString().equals("nid")){
+                    if(!np.toString().equals("nid") && !np.toString().equals("gid")){
                         graph.addNodeFeature(n.get("nid").asInt(), new Feature(np.toString(),
                                 n.get(np.toString()).asString()));
                     }
                 });
 
-                if(!graph.getNodeIDs().anyMatch(id -> id.equals(n2.get("nid").asInt())))
-                    graph.addNode(n2.get("nid").asInt());
+            }
 
-                n2.asMap().keySet().forEach(np -> {
-                    if(!np.toString().equals("nid")){
-                        graph.addNodeFeature(n2.get("nid").asInt(), new Feature(np.toString(),
-                                n2.get(np.toString()).asString()));
-                    }
-                });
+
+
+            // Auto-commit transactions are a quick and easy way to wrap a read.
+            graphResult = session.run(
+                    "MATCH (g:Graph { gid: {graphId} }), (g)-[:HAS_NODE]->(n), (g)-[:HAS_NODE]->(n2), " +
+                            "(n)-[e]->(n2) " +
+                            "return g, n, e, n2",
+                    parameters("graphId", graphId));
+            // Each Cypher execution returns a stream of records.
+            while (graphResult.hasNext())
+            {
+                record = graphResult.next();
+                Node n = record.get("n").asNode();
+                Node n2 = record.get("n2").asNode();
+                Relationship edgeNode = record.get("e").asRelationship();
+
+
 
                 if(!graph.getEdgeIDs().anyMatch(id -> id.equals(edgeNode.get("eid").asInt())))
                     graph.addEdge(edgeNode.get("eid").asInt(), n.get("nid").asInt(), n2.get("nid").asInt());
 
                 edgeNode.asMap().keySet().forEach(ep -> {
-                    if(!ep.toString().equals("eid")) {
+                    if(!ep.toString().equals("eid") && !ep.toString().equals("gid") ) {
                         graph.addEdgeFeature(edgeNode.get("eid").asInt(), new Feature(ep.toString(),
                                 edgeNode.get(ep.toString()).asString()) );
                     }
                 });
+
             }
         } catch(Exception e){
             e.printStackTrace();

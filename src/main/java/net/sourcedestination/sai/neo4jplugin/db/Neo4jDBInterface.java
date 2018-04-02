@@ -36,7 +36,12 @@ public class Neo4jDBInterface implements DBInterface {
     private long nextGraphID = 1;
 
     public Neo4jDBInterface(){
-        driver = GraphDatabase.driver("bolt://localhost:7687");
+        logger.info("Creating Neo4j DB interface");
+        try {
+            driver = GraphDatabase.driver("bolt://localhost:7687");
+        } catch(Exception e) {
+            logger.info("could not connect to database", e);
+        }
     }
 
     @Override
@@ -60,9 +65,6 @@ public class Neo4jDBInterface implements DBInterface {
     public int addGraph(Graph saiGraph) {
         try (Session session = driver.session()){
             StatementResult result = session.run("MATCH (g:Graph) return MAX(g.gid)");
-            Set<String> graphFeatureSet = Sets.newHashSet();
-            Set<String> nodeFeatureSet = Sets.newHashSet();
-            Set<String> edgeFeatureSet = Sets.newHashSet();
             int currentHighestGId = 0;
             Record record = result.single();
             if(record.get("MAX(g.gid)").asObject() != null){
@@ -79,55 +81,35 @@ public class Neo4jDBInterface implements DBInterface {
                 tx.success();  // Mark this write as successful.
 
                 saiGraph.getFeatures().forEach(f -> {
-                    if(graphFeatureSet.contains(f.getName())){
-                        String newLabelName = f.getName() + "_" + repeatingGraphLabelCounter[0];
-                        tx.run("MATCH (g:Graph { gid: {gid} }) SET g." + newLabelName + " = {fValue}",
+                    tx.run("MATCH (g:Graph { gid: {gid} }) SET g."+ f.getName() + " = {fValue}",
                                 parameters("gid", newGraphId, "fValue", f.getValue()));
-                        repeatingGraphLabelCounter[0]++;
-                        graphFeatureSet.add(newLabelName);
-                    } else {
-                        tx.run("MATCH (g:Graph { gid: {gid} }) SET g."+ f.getName() + " = {fValue}",
-                                parameters("gid", newGraphId, "fValue", f.getValue()));
-                        graphFeatureSet.add(f.getName());
-                    }
                 });
                 saiGraph.getNodeIDs().forEach(nid -> {
-                    tx.run("CREATE (n:Node { nid: {nid} })", parameters("nid", nid));
+                    tx.run("CREATE (n:Node { nid: {nid}, gid: {gid} })",
+                            parameters("nid", nid, "gid", newGraphId));
                     saiGraph.getNodeFeatures(nid).forEach(nf -> {
-                        if(nodeFeatureSet.contains(nf.getName())){
-                            String newLabelName = nf.getName() + "_" + repeatingNodeLabelCounter[0];
-                            tx.run("MATCH (n:Node { nid: {nid} }) SET n." + newLabelName + " = {fValue}",
+                        tx.run("MATCH (n:Node { nid: {nid} }) SET n." + nf.getName() + " = {fValue}",
                                     parameters("nid", nid, "fValue", nf.getValue()));
-                            nodeFeatureSet.add(newLabelName);
-                        } else {
-                            tx.run("MATCH (n:Node { nid: {nid} }) SET n." + nf.getName() + " = {fValue}",
-                                    parameters("nid", nid, "fValue", nf.getValue()));
-                            nodeFeatureSet.add(nf.getName());
-                        }
+
                     });
-                    nodeFeatureSet.clear();
-                    tx.run("MATCH (n:Node { nid: {nid} }), (g:Graph { gid: {gid} }) CREATE (g)-[:HAS_NODE]->(n)",
+                    tx.run("MATCH (n:Node { nid: {nid}, gid: {gid} }), (g:Graph { gid: {gid} }) CREATE (g)-[:HAS_NODE]->(n)",
                             parameters("nid", nid, "gid", newGraphId));
                 });
+
                 saiGraph.getEdgeIDs().forEach(eid -> {
                     int nid1 = saiGraph.getEdgeSourceNodeID(eid);
                     int nid2 = saiGraph.getEdgeTargetNodeID(eid);
-                    tx.run("MATCH (n1:Node { nid: {nid1} }), (n2:Node {nid: {nid2} })" +
-                                    "CREATE (n1)-[:HAS_EDGE { eid: {eid} }]->(n2)",
-                            parameters("nid1", nid1, "nid2", nid2, "eid", eid));
+                    tx.run("MATCH (n1:Node { nid: {nid1}, gid: {gid} }), (n2:Node {nid: {nid2}, gid: {gid} })" +
+                                    "CREATE (n1)-[:HAS_EDGE { eid: {eid}, gid: {gid} }]->(n2)",
+                            parameters("nid1", nid1, "nid2", nid2,
+                                    "gid", newGraphId, "eid", eid));
                     saiGraph.getEdgeFeatures(eid).forEach(ef -> {
-                        if(edgeFeatureSet.contains(ef.getName())){
-                            String newLabelName = ef.getName() + "_" + repeatingEdgeLabelCounter[0];
-                            tx.run("MATCH (n1:Node { nid: {nid1} })-[r:HAS_EDGE]->(n2:Node { nid: {nid2} }) SET r." + newLabelName + " = {fValue}",
-                                    parameters("nid1", nid1, "nid2", nid2, "eid", eid,"fValue", ef.getValue()));
-                            edgeFeatureSet.add(newLabelName);
-                        } else {
-                            tx.run("MATCH (n1:Node { nid: {nid1} })-[r:HAS_EDGE]->(n2:Node { nid: {nid2} }) SET r." + ef.getName() + " = {fValue}",
-                                    parameters("nid1", nid1, "nid2", nid2, "eid", eid,"fValue", ef.getValue()));
-                            edgeFeatureSet.add(ef.getName());
-                        }
+                        tx.run("MATCH (n1:Node { nid: {nid1}, gid: {gid} })-[r:HAS_EDGE]->(n2:Node { nid: {nid2}, gid: {gid} }) SET r." + ef.getName() + " = {fValue}",
+                                    parameters("nid1", nid1, "nid2", nid2,
+                                            "gid", newGraphId,
+                                            "eid", eid,"fValue", ef.getValue()));
+
                     });
-                    edgeFeatureSet.clear();
                 });
                 tx.success();
             } catch (Exception e) {
@@ -154,7 +136,7 @@ public class Neo4jDBInterface implements DBInterface {
     public void deleteGraph(int i) {
         try (Session session = driver.session()){
             try (Transaction tx = session.beginTransaction()) {
-                tx.run("MATCH (g:Graph { gid: {gid} }) DETACH DELETE g", parameters("gid", i));
+                tx.run("MATCH (n { gid: {gid} }) DETACH DELETE n", parameters("gid", i));
                 tx.success();  // Mark this write as successful.
             } catch (Exception e) {
                 e.printStackTrace();
