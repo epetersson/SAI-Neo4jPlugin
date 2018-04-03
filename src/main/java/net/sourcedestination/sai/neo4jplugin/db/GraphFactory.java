@@ -78,7 +78,7 @@ public class GraphFactory<G extends Graph> {
                 n.asMap().keySet().forEach(np -> {
                     if(!np.toString().equals("nid") && !np.toString().equals("gid")){
                         graph.addNodeFeature(n.get("nid").asInt(), new Feature(np.toString(),
-                                n.get(np.toString()).asString()));
+                                n.get(np.toString()).toString()));
                     }
                 });
 
